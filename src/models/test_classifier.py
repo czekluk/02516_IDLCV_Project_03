@@ -1,10 +1,10 @@
 import torch
 import torch.nn as nn
 
-class TestCNN(nn.Module):
+class TestClassifier(nn.Module):
     """CNN classifier for testing purposes"""
     def __init__(self, num_classes=10):
-        super(TestCNN, self).__init__()
+        super(TestClassifier, self).__init__()
         self.conv = nn.Sequential(
             # Layer 1 - input size: 32x32x3
             nn.Conv2d(3, 64, 3, padding=1),
