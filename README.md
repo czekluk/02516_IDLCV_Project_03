@@ -50,6 +50,10 @@ bkill <job-id>
 
 Next meeting on Saturday (02.11.2024) at 18:00.
 
+## ToDo V2
+
+Next meeting on Wednesday (06.11.2024) during lecture.
+
 ## Submission Deadline
 
 Submission on Tuesday 19.11.2024 at 22:00.
