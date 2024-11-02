@@ -37,18 +37,22 @@ bkill <job-id>
 
 ## ToDo
 
-- Visualisation of data (bounding boxes + images)
-- Dataloaders + preprocessing (class imbalance!)
-- Training loop
-- Object proposal extractors
-- Metrics (for models & proposals)
-- Training visualisations
-- Object proposal preparation
-- CNN classifier (N+1 classes)
-- training, training, training
-- evaluation of classification accuracy, object detection accuracy, etc.
+- Visualisation of data (bounding boxes + images) - Nandor
+- Dataloaders + preprocessing (class imbalance!) - Nandor
+- Object proposal extractors - Alex
+- Object proposal preparation - Alex
+- Metrics (for models & proposals) - Alex
+- Training loop - Zeljko
+- Training visualisations - Zeljko
+- CNN classifier (N+1 classes) - Filip
+- training, training, training - Filip
+- evaluation of classification accuracy, object detection accuracy, etc. - Lukas
 
 Next meeting on Saturday (02.11.2024) at 18:00.
+
+## ToDo V2
+
+Next meeting on Wednesday (06.11.2024) during lecture.
 
 ## Submission Deadline
 
