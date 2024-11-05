@@ -3,15 +3,11 @@ sys.path.append("..")
 import os
 import json
 import xml.etree.ElementTree as ET
-import cv2
-import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Dataset
 import torchvision.transforms as transforms
 import torch
 from custom_transforms import base_transform
-# from utils import _draw_bounding_boxes
 from tqdm import tqdm
-import numpy as np
 import torchvision
 from torchvision.utils import draw_bounding_boxes, save_image
 

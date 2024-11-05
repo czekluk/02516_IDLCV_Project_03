@@ -49,3 +49,6 @@ class JointBaseTransform(torch.nn.Module):
 
     def __repr__(self):
         return f"{self.__class__.__name__}(size={self.size})"
+    
+def base_transform(size: int = 512):
+    return JointBaseTransform(size=size)
