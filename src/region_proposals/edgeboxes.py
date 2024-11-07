@@ -108,7 +108,11 @@ class EdgeBoxesProposer:
             orimap: Orientation map of the edges
         """
         rgb_im = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        edges = self.edge_detection.detectEdges(np.float32(rgb_im) / 255.0)
+        if (rgb_im.max() < 1.01):
+            # Image is already normalized
+            edges = self.edge_detection.detectEdges(np.float32(rgb_im))
+        else:
+            edges = self.edge_detection.detectEdges(np.float32(rgb_im) / 255.0)
         orimap = self.edge_detection.computeOrientation(edges)
         edges = self.edge_detection.edgesNms(edges, orimap)
         return edges, orimap

@@ -6,7 +6,7 @@ import glob
 
 from trainer import Trainer
 from models import *
-from data import *
+from data_loader import *
 from loss_functions import *
 from visualizer import Visualizer
 
@@ -14,35 +14,37 @@ PROJECT_BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 DATA_DIR = os.path.join(PROJECT_BASE_DIR, 'data')
 
 class Experiment:
-    def __init__(self, models, optimizers, losses, epochs, datamodule, description="Baseline experiment", save_dir=os.path.join(PROJECT_BASE_DIR, 'results')):
+    def __init__(self, models, optimizers, losses, epochs, datamodule, transforms, description="Baseline experiment", save_dir=os.path.join(PROJECT_BASE_DIR, 'results')):
         '''
         Initialize the experiment with the models, optimizers, losses, data, and epochs.
 
         models (list): List of models to be trained.
         optimizers (list): List of optimizers to be used for training.
-        losses (list): List of loss functions to be used for training.
+        losses (tuple): List of loss functions to be used for training and their names.
         epochs (list): List of number of epochs to train the models.
         datamodule (DataModule): DataModule object that contains the data.
+        transforms (nn.Module): transform module
         description (str): Description of the experiment.
         '''
         self.models = models
         self.optimizers = optimizers
         self.losses = losses
         self.epochs = epochs
-        self.trainloader = datamodule.train_loader()
-        self.testloader = datamodule.test_loader()
+        self.trainloader = datamodule.train_dataloader()
+        self.testloader = datamodule.test_dataloader()
         self.datamodule = datamodule
         self.description = description
         self.save_dir = save_dir
         self.timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         self.results = {}
+        self.transforms = transforms
 
     def run(self, save=True, visualize=False):
         '''
         Run the defined experiment.
         '''
         print("Running experiment: ", self.description)
-        trainer = Trainer(self.models, self.optimizers, self.losses, self.epochs, self.trainloader, self.testloader, self.description, self.datamodule)
+        trainer = Trainer(self.models, self.optimizers, self.losses, self.epochs, self.trainloader, self.testloader, self.transforms, self.description)
         self.results = trainer.train()
         if save:
             self.save(top_k=1)

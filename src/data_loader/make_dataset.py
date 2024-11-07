@@ -6,11 +6,11 @@ import xml.etree.ElementTree as ET
 from torch.utils.data import DataLoader, Dataset
 import torchvision.transforms as transforms
 import torch
-from custom_transforms import base_transform
+from .custom_transforms import base_transform
 from tqdm import tqdm
 import torchvision
 from torchvision.utils import draw_bounding_boxes, save_image
-
+import cv2
 
 PROJECT_BASE_DIR = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -162,9 +162,9 @@ class PotholeDataSet(Dataset):
     
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]
-        # image = cv2.imread(image_path)
+        image = cv2.imread(image_path)
         # image = torch.from_numpy(image).permute(2, 0, 1).float()  # Convert to torch.Tensor
-        image = torchvision.io.read_image(image_path)
+        #image = torchvision.io.read_image(image_path)
         boxes = self.all_bounding_boxes[os.path.basename(image_path)]
         # boxes = torch.tensor(boxes, dtype=torch.float32)
 
