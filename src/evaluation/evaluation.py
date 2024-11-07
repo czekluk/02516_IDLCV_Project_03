@@ -1,5 +1,7 @@
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
+import os
 
 class Evaluation:
     def __init__(self, nms_iou_threshold=0.7, map_iou_threshold=0.5, score_threshold=0.5):
@@ -126,7 +128,25 @@ class Evaluation:
             else:
                 ap += (recall[i] - recall[i-1]) * precision[i]
         
-        return ap
+        return ap, precision, recall
+    
+    def plot_precision_recall_curve(self, precision: list, recall: list, path: str = os.path.join(os.getcwd(),'precision_recall_curve.png'), title: str = 'Precision-Recall Curve (IoU=0.5)'):
+        '''
+        Plots the Precision-Recall curve.
+        Inputs:
+            precision: list of precision values
+            recall: list of recall values
+        Outputs:
+            None
+        '''
+        plt.plot(recall, precision, color='r', linewidth=4)
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.title(title)
+        plt.xlim(-0.05, 1.05)
+        plt.ylim(-0.05, 1.05)
+        plt.grid(linestyle='--')
+        plt.savefig(path)
     
     def filter_output(self, boxes: list, scores: list) -> list:
         '''
@@ -190,5 +210,10 @@ if __name__ == "__main__":
     print(f"Scores after non-max suppression: {scores}")
 
     # Test mAP
-    mAP = eval.mAP(boxes, scores, ground_truth)
+    mAP, precision, recall = eval.mAP(boxes, scores, ground_truth)
     print(f"mAP: {mAP}")
+    print(f"Precision: {precision[-1]}")
+    print(f"Recall: {recall[-1]}")
+
+    # Test plot_precision_recall_curve
+    eval.plot_precision_recall_curve(precision, recall, path=os.path.join(os.getcwd(),'precision_recall_curve.png'), title='Precision-Recall Curve (IoU=0.5)')
