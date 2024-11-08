@@ -12,7 +12,7 @@ def main():
                      [(nn.BCEWithLogitsLoss(), "Binary Cross Entropy")], 
                      [5],
                      PotholeDataModule(), 
-                     base_transform(),
+                     transforms=[None],
                      description=["Baseline experiment"])
     exp.run(save=True, visualize=True)
 

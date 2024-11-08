@@ -108,6 +108,7 @@ class Trainer:
         
         edgebox_params = {
             'max_boxes': 1000,
+            'min_score': 0.001,
         }
         edgebox_proposer = EdgeBoxesProposer(XIMGPROC_MODEL, edgebox_params)
         for epoch in tqdm(range(num_epochs), unit='epoch'):
@@ -117,12 +118,14 @@ class Trainer:
             train_correct = 0
 
             for minibatch_no, (data, targets) in tqdm(enumerate(self.train_loader), total=len(self.train_loader)):
-                data = data.to(self.device)
-
                 optimizer.zero_grad()
                 train_loss_in_batch = []
+                # For each image in the batch
                 for batch_image, true_boxes in zip(data, targets):
-                    crops, target = edgebox_proposer.get_n_proposals_train(batch_image.cpu().numpy().transpose(1, 2, 0), true_boxes)
+                    batch_image = batch_image.to(self.device)
+                    true_boxes = true_boxes.to(self.device)
+
+                    crops, target = edgebox_proposer.get_n_proposals_train(batch_image.cpu().numpy(), true_boxes.cpu().numpy(), iou_threshold=0.5, n=64)
                     # Define the resize transform to a uniform size
                     resize_transform = transforms.Compose([
                         transforms.ToPILImage(),
@@ -147,20 +150,34 @@ class Trainer:
                 train_loss.append(np.mean(train_loss_in_batch))
                 train_acc.append(train_correct/len(self.train_loader.dataset))
 
-                
-            
             test_loss = []
             test_acc = []
             test_correct = 0
             model.eval()
-            for image, true_boxes in self.test_loader:
-                image = image.to(self.device)
-                crops, target = edgebox_proposer.get_n_proposals_test(image.cpu().numpy().transpose(1, 2, 0), true_boxes)
-                with torch.no_grad():
-                    output = model(crops)
-                test_loss.append(criterion(output, target.clone().detach().float().requires_grad_(True)).cpu().item())
-                predicted = (output > 0.5).float()
-                test_correct += (target==predicted).sum().cpu().item()
+            for data, targets in self.test_loader:
+                for batch_image, true_boxes in zip(data, targets):
+                    batch_image = batch_image.to(self.device)
+                    true_boxes = true_boxes.to(self.device)
+                    crops, target = edgebox_proposer.get_n_proposals_train(batch_image.cpu().numpy(), true_boxes.cpu().numpy(), iou_threshold=0.5, n=64)
+            
+                    # Define the resize transform to a uniform size
+                    resize_transform = transforms.Compose([
+                        transforms.ToPILImage(),
+                        transforms.Resize((32, 32)),
+                        transforms.ToTensor()
+                    ])
+                    tensor_crops = torch.stack([resize_transform(crop) for crop in crops])
+                    tensor_crops = tensor_crops.to(self.device)
+
+                    target = torch.tensor(target, dtype=torch.float32)  # Convert to tensor with float dtype
+                    target = target.view(-1).to(self.device)  # Reshape to match the shape of output
+
+                    with torch.no_grad():
+                        output = model(tensor_crops).view(-1)
+
+                    test_loss.append(criterion(output, target.clone().detach().float()))
+                    predicted = (output > 0.5).float()
+                    test_correct += (target==predicted).sum().cpu().item()
             
             test_acc.append(test_correct/len(self.test_loader.dataset))
             # Add entries output json

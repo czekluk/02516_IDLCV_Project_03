@@ -22,9 +22,8 @@ VISUALIZATION_DIR = os.path.join(PROJECT_BASE_DIR, "data/visualized_bounding_box
 
 
 class PotholeDataSet(Dataset):
-    def __init__(self, train: bool, transform=transforms.ToTensor(), data_path=DATA_DIR, splits_file=SPLITS_FILE):
+    def __init__(self, train: bool, data_path=DATA_DIR, splits_file=SPLITS_FILE):
         self.directory = data_path
-        self.transform = transform
         self.splits_file = splits_file
         self.train = train
         # list of XML file paths
@@ -163,13 +162,10 @@ class PotholeDataSet(Dataset):
     def __getitem__(self, idx):
         image_path = self.image_paths[idx]
         image = cv2.imread(image_path)
-        # image = torch.from_numpy(image).permute(2, 0, 1).float()  # Convert to torch.Tensor
-        #image = torchvision.io.read_image(image_path)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = torch.tensor(image)
         boxes = self.all_bounding_boxes[os.path.basename(image_path)]
-        # boxes = torch.tensor(boxes, dtype=torch.float32)
 
-        if self.transform:
-            image, boxes = self.transform(image, boxes)
         return (image, boxes)
 
 class PotholeDataModule:
@@ -177,16 +173,16 @@ class PotholeDataModule:
         self,
         data_path=DATA_DIR,
         batch_size: int = 16,
-        train_transform=base_transform(size=256),
-        test_transform=base_transform(size=256)
+        train_transform = transforms.ToTensor(),
+        test_transform = transforms.ToTensor(),
     ):
         self.batch_size = batch_size
         self.data_path = data_path
         self.train_dataset = PotholeDataSet(
-            train=True, transform=train_transform, data_path=data_path
+            train=True, data_path=data_path
         )
         self.test_dataset = PotholeDataSet(
-            train=False, transform=test_transform, data_path=data_path
+            train=False, data_path=data_path
         )
     
     def train_dataloader(self, shuffle=False) -> DataLoader:
@@ -213,8 +209,7 @@ class PotholeDataModule:
         for img, boxes in batch:
             images.append(img)
             bounding_boxes.append(boxes)
-        # Stack images as usual; bounding_boxes remains a list of varying-size tensors
-        images = torch.stack(images)
+        # Return lists of varying size tensor images and bounding boxes
         return images, bounding_boxes
     
     def get_training_examples(self):
