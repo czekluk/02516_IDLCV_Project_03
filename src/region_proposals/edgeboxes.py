@@ -9,10 +9,11 @@ from tqdm import tqdm
 import random
 
 
-PROJECT_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath('')))
-XIMGPROC_MODEL = os.path.join(os.path.abspath(''), 'ximgproc_model.yml.gz')
+PROJECT_BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+XIMGPROC_MODEL = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ximgproc_model.yml.gz')
 RAW_IMG_DIR = os.path.join(PROJECT_BASE_DIR, 'data', 'raw', 'Potholes', 'annotated-images')
 
+PLOTTED_IMAGE_DIR = os.path.join(PROJECT_BASE_DIR, 'src', 'region_proposals')
 #---------------------------------#
 # HELPER FUNCTIONS
 #---------------------------------#
@@ -295,14 +296,14 @@ class EdgeBoxesProposer:
         print(f'Recall: {total_recall:.3f}')
         print(f'MABO: {total_mabo:.3f}')
         return total_qualified, total_recall, total_mabo
-
-    def plot_bboxes(self, image, prop_boxes = None, qualified_boxes = None, best_boxes = None, gt_boxes = None):
+   
+    def visualize_bboxes(self, image, prop_boxes = None, qualified_boxes = None, best_boxes = None, gt_boxes = None, save_path = None):
         """Plots the bounding boxes on the image. Different colors are used for different types of boxes."""
         im = image.copy()
-        prop_color = (255, 255, 255) # Color of the proposed boxes
-        qualified_color = (0, 255, 0) # Color of the qualified boxes
-        best_color = (255, 0, 0) # Color of the best boxes
-        gt_color = (0, 0, 255) # Color of the ground truth boxes
+        prop_color = (255, 255, 255) # Color of the proposed boxes (white)
+        qualified_color = (0, 255, 0) # Color of the qualified boxes (green)
+        best_color = (255, 0, 0) # Color of the best boxes (red)
+        gt_color = (0, 0, 255) # Color of the ground truth boxes (blue)
         
         if prop_boxes:
             for b in prop_boxes:
@@ -325,15 +326,20 @@ class EdgeBoxesProposer:
                 cv2.rectangle(im, (xmin, ymin), (xmax, ymax), gt_color, 3, cv2.LINE_AA)
                 
         # Add color legend
-        f = plt.figure(figsize=(7, 7))
-        plt.plot(0, 0, "-", color=[c/255 - 0.1 for c in prop_color], label="Proposed Objects")
+        f = plt.figure(figsize=(10, 10))
+        plt.plot(0, 0, "-", color=[c/255 for c in prop_color], label="Proposed Objects")
         plt.plot(0, 0, "-", color=[c/255 for c in qualified_color], label="Qualified Objects (IoU > Threshold)")
         plt.plot(0, 0, "-", color=[c/255 for c in best_color], label="Best Matches")
         plt.plot(0, 0, "-", color=[c/255 for c in gt_color], label="Ground Truth Objects")
-        f.legend(loc='lower center', ncol=4, fontsize=10, bbox_to_anchor=(0.5, -0.05))
+        plt.legend(loc='lower center', ncol=4, fontsize=10, bbox_to_anchor=(0.5, -0.05), prop={'weight': 'bold'})
         plt.axis('off')
         plt.tight_layout()
         plt.imshow(im)
+        if save_path:
+            plt.savefig(save_path)
+            plt.close(f)
+        else:
+            plt.show()
     
     def crop_image_to_bbox(self, image, bbox):
         """Crops the image content to the bounding box"""
@@ -359,19 +365,19 @@ class EdgeBoxesProposer:
         final_boxes = []
         for box in best_boxes:
             crop = self.crop_image_to_bbox(image, box)
-            final_boxes.append((crop, 1))
+            final_boxes.append((crop, 1, box))
         
         # Populate list with qualified boxes until the positive class ratio is met
         while len(final_boxes) / n < positive_class_ratio:
             box = random.choice(qualified_boxes)
             crop = self.crop_image_to_bbox(image, box)
-            final_boxes.append((crop, 1))
+            final_boxes.append((crop, 1, box))
         
         # Populate the rest of the list with random boxes
         while len(final_boxes) < n:
             box = random.choice(boxes)
             crop = self.crop_image_to_bbox(image, box)
-            final_boxes.append((crop, 0))
+            final_boxes.append((crop, 0, box))
 
         # Shuffle the final list
         random.shuffle(final_boxes)
@@ -379,8 +385,8 @@ class EdgeBoxesProposer:
         # Extract images and labels
         images = [box[0] for box in final_boxes]
         labels = [box[1] for box in final_boxes]
-
-        return images, labels
+        box_coords = [box[2] for box in final_boxes]
+        return images, labels, box_coords
     
     def get_n_proposals_test(self, image, n = 50):
         """
@@ -395,7 +401,7 @@ class EdgeBoxesProposer:
             if i == n:
                 break
             crop = self.crop_image_to_bbox(image, box)
-            final_boxes.append((crop, 1))
+            final_boxes.append((crop, 1, box))
         return final_boxes
 
 if __name__ == '__main__':
@@ -422,7 +428,7 @@ if __name__ == '__main__':
     boxes, scores = eb.get_proposals(img_to_plot)
     qualified_boxes, best_boxes, best_ious = eb.filter_by_iou_threshold(boxes, gt_bbox)
     qualified_pct, recall, mabo = eb.get_metrics(boxes, qualified_boxes, best_boxes, best_ious, gt_bbox, print_output=True)
-    eb.plot_bboxes(img_to_plot, boxes[:20], qualified_boxes, best_boxes, gt_bbox) # Plot only the top 20 boxes for visibility
+    eb.visualize_bboxes(img_to_plot, boxes[:20], qualified_boxes, best_boxes, gt_bbox, save_path=PLOTTED_IMAGE_DIR) # Plot only the top 20 boxes for visibility
     
     # Get n proposals for training - image, label (50 proposals, 30% positive class ratio)
     n_train = 50

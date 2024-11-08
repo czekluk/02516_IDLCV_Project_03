@@ -6,11 +6,13 @@ import xml.etree.ElementTree as ET
 from torch.utils.data import DataLoader, Dataset
 import torchvision.transforms as transforms
 import torch
-from custom_transforms import base_transform
+from custom_transforms import norm_transform, cropped_transform
 from tqdm import tqdm
 import torchvision
 from torchvision.utils import draw_bounding_boxes, save_image
-
+from region_proposals.edgeboxes import  EdgeBoxesProposer, XIMGPROC_MODEL
+import numpy as np
+from PIL import Image
 
 PROJECT_BASE_DIR = os.path.dirname(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -78,8 +80,7 @@ class PotholeDataSet(Dataset):
             assert len(list_with_single_boxes) == 4
             list_with_all_boxes.append(list_with_single_boxes)
 
-        boxes_tensor = torch.tensor(list_with_all_boxes, dtype=torch.int32)
-        return filename, boxes_tensor
+        return filename, list_with_all_boxes
         
 
     def get_image_paths(self):
@@ -100,6 +101,7 @@ class PotholeDataSet(Dataset):
         """
         Visualizes bounding boxes on a single image and saves the result.
         """
+        boxes = torch.tensor(boxes, dtype=torch.float32)
         image = torchvision.io.read_image(image_path)
         image = draw_bounding_boxes(image, boxes)
         image_name = os.path.basename(image_path)
@@ -164,58 +166,90 @@ class PotholeDataSet(Dataset):
         image_path = self.image_paths[idx]
         # image = cv2.imread(image_path)
         # image = torch.from_numpy(image).permute(2, 0, 1).float()  # Convert to torch.Tensor
-        image = torchvision.io.read_image(image_path)
+        image = np.array(Image.open(image_path))
         boxes = self.all_bounding_boxes[os.path.basename(image_path)]
         # boxes = torch.tensor(boxes, dtype=torch.float32)
 
         if self.transform:
             image, boxes = self.transform(image, boxes)
+        
         return (image, boxes)
 
 class PotholeDataModule:
     def __init__(
         self,
         data_path=DATA_DIR,
-        batch_size: int = 16,
-        train_transform=base_transform(size=256),
-        test_transform=base_transform(size=256)
+        batch_size: int = 50,
+        transform=cropped_transform,
+        dataset_image_per_batch: int = 1
     ):
-        self.batch_size = batch_size
+        self.n_dataset_img_per_batch = dataset_image_per_batch
+        self.n_cropped_img_per_dataset_img = batch_size // dataset_image_per_batch
         self.data_path = data_path
         self.train_dataset = PotholeDataSet(
-            train=True, transform=train_transform, data_path=data_path
+            train=True, data_path=data_path
         )
         self.test_dataset = PotholeDataSet(
-            train=False, transform=test_transform, data_path=data_path
+            train=False,  data_path=data_path
         )
+        self.transform = transform,
+        edgebox_params = {
+        'max_boxes': 1000,
+        }
+        self.eb = EdgeBoxesProposer(XIMGPROC_MODEL, edgebox_params)
     
     def train_dataloader(self, shuffle=False) -> DataLoader:
         return DataLoader(
             self.train_dataset,
-            batch_size=self.batch_size,
+            batch_size=self.n_dataset_img_per_batch,
             shuffle=shuffle,
             num_workers=0,
-            collate_fn=self.collate_fn
+            collate_fn=self.collate_fn_train
         )
 
     def test_dataloader(self, shuffle=False) -> DataLoader:
         return DataLoader(
             self.test_dataset,
-            batch_size=self.batch_size,
+            batch_size=self.n_dataset_img_per_batch,
             shuffle=shuffle,
             num_workers=0,
-            collate_fn=self.collate_fn
+            collate_fn=self.collate_fn_test
         )
     
-    def collate_fn(self,batch):
+    def collate_fn_train(self,batch):
         images = []
-        bounding_boxes = []
-        for img, boxes in batch:
-            images.append(img)
-            bounding_boxes.append(boxes)
+        labels = []
+        gt_bboxes_list = []
+        proposed_box_coordinates_list = []
+        for img, gt_bboxes in batch:
+            cropped_images, cropped_image_labels, proposed_box_coordinates = self.eb.get_n_proposals_train(img, gt_bboxes, n=self.n_cropped_img_per_dataset_img, iou_threshold=0.5, positive_class_ratio=0.3)
+            cropped_images = [self.transform(torch.from_numpy(img).permute(2, 0, 1).float()) for img in cropped_images]
+            cropped_images = torch.stack(cropped_images)
+            images.append(cropped_images)
+            labels.append(cropped_image_labels)
+            gt_bboxes_list.append(gt_bboxes)
+            proposed_box_coordinates_list.append(proposed_box_coordinates)
+
+        # Stack images as usual; bounding_boxes remains a list of varying-size tensors
+        
+        images = torch.stack(images)
+        return images, labels, gt_bboxes_list, proposed_box_coordinates_list
+    
+    def collate_fn_test(self,batch):
+        images = []
+        gt_bboxes_list = []
+        proposed_box_coordinates_list = []
+        for img, gt_bboxes in batch:
+            cropped_images, _ , proposed_box_coordinates = self.eb.get_n_proposals_test(img, n=self.n_cropped_img_per_dataset_img)
+            cropped_images = [self.transform(torch.from_numpy(img).permute(2, 0, 1).float()) for img in cropped_images]
+            cropped_images = torch.stack(cropped_images)
+            images.append(cropped_images)
+            gt_bboxes_list.append(gt_bboxes)
+            proposed_box_coordinates_list.append(proposed_box_coordinates)
+
         # Stack images as usual; bounding_boxes remains a list of varying-size tensors
         images = torch.stack(images)
-        return images, bounding_boxes
+        return images, gt_bboxes_list, proposed_box_coordinates_list
     
     def get_training_examples(self):
         images, boxes = next(iter(self.train_dataloader()))
@@ -281,19 +315,19 @@ def test_data_module(data_module:PotholeDataModule):
     test_loader = data_module.test_dataloader()
 
     # draw bounding boxes on the first minibatch of the train and test loaders
-    for minibatch_no, (image, target_boxes) in tqdm(enumerate(train_loader), total=len(train_loader)):
+    for minibatch_no, (images, labels, gt_bboxes_list, proposed_box_coordinates_list) in tqdm(enumerate(train_loader), total=len(train_loader)):
         print(f"Minibatch {minibatch_no}:")
-        print(f"Data shape: {image.shape}")
+        print(f"Data shape: {images.shape}")
         output_directory=os.path.join(VISUALIZATION_DIR, "train")
-        image= draw_bounding_boxes(image[0], target_boxes[0])
+        image= draw_bounding_boxes(images[0,0], proposed_box_coordinates_list[0])
         output_path = os.path.join(output_directory, f"minibatch_{minibatch_no}.jpg")
         save_image(image, output_path)
 
-    for minibatch_no, (image, target_boxes) in tqdm(enumerate(test_loader), total=len(test_loader)):
+    for minibatch_no, (images, gt_bboxes_list, proposed_box_coordinates_list) in tqdm(enumerate(test_loader), total=len(test_loader)):
         print(f"Minibatch {minibatch_no}:")
-        print(f"Data shape: {image.shape}")
+        print(f"Data shape: {images.shape}")
         output_directory=os.path.join(VISUALIZATION_DIR, "test")
-        image= draw_bounding_boxes(image[0], target_boxes[0])
+        image= draw_bounding_boxes(images[0,0], proposed_box_coordinates_list[0])
         output_path = os.path.join(output_directory, f"minibatch_{minibatch_no}.jpg")
         save_image(image, output_path)
 
