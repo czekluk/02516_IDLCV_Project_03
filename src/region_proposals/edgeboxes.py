@@ -10,7 +10,7 @@ import random
 
 
 PROJECT_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath('')))
-XIMGPROC_MODEL = os.path.join(os.path.abspath(''), 'ximgproc_model.yml.gz')
+XIMGPROC_MODEL = os.path.join(PROJECT_BASE_DIR, 'ximgproc_model.yml.gz')
 RAW_IMG_DIR = os.path.join(PROJECT_BASE_DIR, 'data', 'raw', 'Potholes', 'annotated-images')
 
 #---------------------------------#
@@ -432,7 +432,7 @@ class EdgeBoxesProposer:
                 break
             crop = self.crop_image_to_bbox(image, box)
             image_crops.append(crop)
-        return np.array(image_crops, dtype=object)
+        return np.array(image_crops, dtype=object), np.array(boxes)
 
 if __name__ == '__main__':
     # Load entire dataset

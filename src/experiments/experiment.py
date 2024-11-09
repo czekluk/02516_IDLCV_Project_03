@@ -3,15 +3,22 @@ import os
 import datetime
 import json
 import glob
+import numpy as np
+from tqdm import tqdm
 
+from evaluation.evaluation import Evaluation
+from models.classifiers import ClassifierAlexNet64
+from region_proposals.edgeboxes import EdgeBoxesProposer
 from trainer import Trainer
 from models import *
 from data_loader import *
 from loss_functions import *
 from visualizer import Visualizer
+import torchvision.transforms as transforms
 
 PROJECT_BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(PROJECT_BASE_DIR, 'data')
+XIMGPROC_MODEL = os.path.join(PROJECT_BASE_DIR, 'src', 'region_proposals', 'ximgproc_model.yml.gz')
 
 class Experiment:
     def __init__(self, models, optimizers, losses, epochs, datamodule, transforms, description="Baseline experiment", save_dir=os.path.join(PROJECT_BASE_DIR, 'results')):
@@ -122,11 +129,87 @@ class Experiment:
         
         result_path = os.path.join(self.save_dir, f"{self.timestamp}_{self.description}")
         figure_path = os.path.join(result_path, "figures")
+        models_path = os.path.join(result_path, "saved_models")
+        model_path = os.path.join(models_path, f"{self.timestamp}_{self.description}_{best_model['test_acc'][-1]:.4f}_{best_model['model_name']}.pth")
 
         # Create directories if they don't exist
         if not os.path.exists(figure_path):
             os.makedirs(figure_path)
 
-        # Visualize the results
-        vis = Visualizer()
+        # Here you can specify which of the best models you want to choose, it is scuffed so feel free to change if you use multiple models
+        best_model = self.results[0]
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+        model = ClassifierAlexNet64()
+        model = torch.load(model_path, map_location=device)
+        model.to(device)
+        model.eval()
+
+        edgebox_params = {
+            'max_boxes': 1000,
+            'min_score': 0.001,
+        }
+        edgebox_proposer = EdgeBoxesProposer(XIMGPROC_MODEL, edgebox_params)
+        eval = Evaluation(nms_iou_threshold=0.7, map_iou_threshold=0.5, score_threshold=0.5)
+        mAPs = []
+        all_precisions = []
+        all_recalls = []
+        tested_images = []
+        tested_true_boxes = []
+        proposed_boxes = []
+        for minibatch_no, (data, targets) in tqdm(enumerate(self.testloader), total=len(self.testloader)):
+            for batch_image, true_boxes in zip(data, targets):
+                crops, predicted_boxes = edgebox_proposer.get_n_proposals_test(batch_image.numpy(), n=100)
         
+                # Define the resize transform to a uniform size
+                resize_transform = transforms.Compose([
+                    transforms.ToPILImage(),
+                    transforms.Resize((64, 64)),
+                    transforms.ToTensor()
+                ])
+                tensor_crops = torch.stack([resize_transform(crop) for crop in crops])
+                tensor_crops = tensor_crops.to(device)
+
+                with torch.no_grad():
+                    output = model(tensor_crops).view(-1)
+                
+                # Filter predicted boxes with probability < 0.5 for detecting a pothole
+                boxes, scores = eval.filter_output(predicted_boxes, output.cpu().numpy())
+                # Do a non max supression for overlapping boxes that detect the same object
+                boxes, scores = eval.non_max_suppression(boxes, scores)
+                # Get the mAP
+                mAP, precision, recall = eval.mAP(boxes, scores, true_boxes)
+                mAPs.append(mAP)
+                all_precisions.append(precision)
+                all_recalls.append(recall)
+                tested_images.append(batch_image)
+                tested_true_boxes.append(true_boxes)
+                proposed_boxes.append(boxes)
+        
+        mAPs = np.array(mAPs)
+        # This sumarrizes our whole model and we can use it later in plots or whatever so keep it here
+        mean_mAP = np.mean(mAPs)
+        
+        # Find images that had the highest mAP
+        N = 5
+        top_N_indices = np.argpartition(mAPs, -N)[-N:]
+        top_N_mAPs = [mAPs[i] for i in top_N_indices]
+        # Extract the precision and recall lists for the top 5 mAPs
+        top_N_precisions = [all_precisions[i] for i in top_N_indices]
+        top_N_recalls = [all_recalls[i] for i in top_N_indices]
+        top_N_images, top_N_true_boxes = [tested_images[i] for i in top_N_indices], [tested_true_boxes[i] for i in top_N_indices]
+        top_N_proposed_boxes = [proposed_boxes[i] for i in top_N_indices]
+        for i in range(N):
+            # Make precision recall curve
+            eval.plot_precision_recall_curve(precision=top_N_precisions[i], 
+                                            recall=top_N_recalls[i], 
+                                            path=os.path.join(figure_path, f"precision_recall_curve_{i+1}.png"), 
+                                            title='Precision-Recall Curve (IoU=0.5)', 
+                                            mAP=top_N_mAPs[i])
+            eval.plot_image_with_boxes(image_tensor=top_N_images[i],
+                                       true_boxes=top_N_true_boxes[i],
+                                       proposed_boxes=top_N_proposed_boxes[i],
+                                       save_path=os.path.join(figure_path, f"prediction_{i+1}.png"))
+            
+
+
