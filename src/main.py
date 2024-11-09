@@ -3,11 +3,12 @@ import torch.nn as nn
 
 from experiments.experiment import Experiment
 from models.test_classifier import TestClassifier
+from models.classifiers import ClassifierAlexNet64
 from data_loader.make_dataset import PotholeDataModule
 from data_loader.custom_transforms import base_transform
 
 def main():
-    exp = Experiment([TestClassifier], 
+    exp = Experiment([ClassifierAlexNet64], 
                      [{"optimizer": torch.optim.Adam, "params": {"lr": 1e-3}}], 
                      [(nn.BCEWithLogitsLoss(), "Binary Cross Entropy")], 
                      [3],
