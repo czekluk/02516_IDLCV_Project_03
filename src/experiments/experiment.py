@@ -127,6 +127,8 @@ class Experiment:
             print("No results to visualize. Run the experiment first.")
             return
         
+        best_model = self.results[0]
+
         result_path = os.path.join(self.save_dir, f"{self.timestamp}_{self.description}")
         figure_path = os.path.join(result_path, "figures")
         models_path = os.path.join(result_path, "saved_models")
@@ -137,7 +139,6 @@ class Experiment:
             os.makedirs(figure_path)
 
         # Here you can specify which of the best models you want to choose, it is scuffed so feel free to change if you use multiple models
-        best_model = self.results[0]
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         model = ClassifierAlexNet64()
@@ -173,8 +174,9 @@ class Experiment:
                 with torch.no_grad():
                     output = model(tensor_crops).view(-1)
                 
+                predicted = (torch.sigmoid(output) > 0.5).float()
                 # Filter predicted boxes with probability < 0.5 for detecting a pothole
-                boxes, scores = eval.filter_output(predicted_boxes, output.cpu().numpy())
+                boxes, scores = eval.filter_output(predicted_boxes, predicted.cpu().numpy())
                 # Do a non max supression for overlapping boxes that detect the same object
                 boxes, scores = eval.non_max_suppression(boxes, scores)
                 # Get the mAP
