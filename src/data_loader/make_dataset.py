@@ -172,9 +172,7 @@ class PotholeDataModule:
     def __init__(
         self,
         data_path=DATA_DIR,
-        batch_size: int = 16,
-        train_transform = transforms.ToTensor(),
-        test_transform = transforms.ToTensor(),
+        batch_size: int = 1,
     ):
         self.batch_size = batch_size
         self.data_path = data_path

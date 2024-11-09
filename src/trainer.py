@@ -91,14 +91,6 @@ class Trainer:
             'test_acc':         [],
             'train_loss':       [],
             'test_loss':        [],
-            'train_dice':       [],
-            'test_dice':        [],
-            'train_iou':        [],
-            'test_iou':         [],
-            'train_sensitivity':[],
-            'test_sensitivity': [],
-            'train_specificity':[],
-            'test_specificity': [],
             'epochs':           num_epochs,
             'optimizer_config': optimizer_config,
             'criterion':        criterion_description,
@@ -115,21 +107,20 @@ class Trainer:
             model.train()
             train_loss = []
             train_acc = []
-            train_correct = 0
 
             for minibatch_no, (data, targets) in tqdm(enumerate(self.train_loader), total=len(self.train_loader)):
                 optimizer.zero_grad()
                 train_loss_in_batch = []
+                train_acc_in_batch = []
                 # For each image in the batch
                 for batch_image, true_boxes in zip(data, targets):
-                    batch_image = batch_image.to(self.device)
-                    true_boxes = true_boxes.to(self.device)
-
-                    crops, target = edgebox_proposer.get_n_proposals_train(batch_image.cpu().numpy(), true_boxes.cpu().numpy(), iou_threshold=0.5, n=64)
+                    train_correct = 0
+                    crops, target = edgebox_proposer.get_n_proposals_train(batch_image.numpy(), true_boxes.numpy(), iou_threshold=0.5, n=64)
+                
                     # Define the resize transform to a uniform size
                     resize_transform = transforms.Compose([
                         transforms.ToPILImage(),
-                        transforms.Resize((32, 32)),
+                        transforms.Resize((64, 64)),
                         transforms.ToTensor()
                     ])
                     tensor_crops = torch.stack([resize_transform(crop) for crop in crops])
@@ -146,24 +137,25 @@ class Trainer:
                     train_loss_in_batch.append(loss.item())
                     predicted = (output > 0.5).float()
                     train_correct += (target==predicted).sum().cpu().item()
+                    train_acc_in_batch.append(train_correct / 64.0)
                 
                 train_loss.append(np.mean(train_loss_in_batch))
-                train_acc.append(train_correct/len(self.train_loader.dataset))
+                train_acc.append(np.mean(train_acc_in_batch))
 
             test_loss = []
             test_acc = []
-            test_correct = 0
             model.eval()
-            for data, targets in self.test_loader:
+            for minibatch_no, (data, targets) in enumerate(self.test_loader):
+                test_acc_in_batch = []
+                test_loss_in_batch = []
                 for batch_image, true_boxes in zip(data, targets):
-                    batch_image = batch_image.to(self.device)
-                    true_boxes = true_boxes.to(self.device)
-                    crops, target = edgebox_proposer.get_n_proposals_train(batch_image.cpu().numpy(), true_boxes.cpu().numpy(), iou_threshold=0.5, n=64)
+                    test_correct = 0
+                    crops, target = edgebox_proposer.get_n_proposals_train(batch_image.numpy(), true_boxes.numpy(), iou_threshold=0.5, n=64)
             
                     # Define the resize transform to a uniform size
                     resize_transform = transforms.Compose([
                         transforms.ToPILImage(),
-                        transforms.Resize((32, 32)),
+                        transforms.Resize((64, 64)),
                         transforms.ToTensor()
                     ])
                     tensor_crops = torch.stack([resize_transform(crop) for crop in crops])
@@ -174,25 +166,31 @@ class Trainer:
 
                     with torch.no_grad():
                         output = model(tensor_crops).view(-1)
+                    loss = criterion(output, target.clone().detach().float())
 
-                    test_loss.append(criterion(output, target.clone().detach().float()))
+                    test_loss_in_batch.append(loss.item())
                     predicted = (output > 0.5).float()
                     test_correct += (target==predicted).sum().cpu().item()
-            
-            test_acc.append(test_correct/len(self.test_loader.dataset))
+                    test_acc_in_batch.append(test_correct / 64.0)
+                
+                test_acc.append(np.mean(test_acc_in_batch))
+                test_loss.append(np.mean(test_loss_in_batch))
+
             # Add entries output json
-            out_dict['train_loss'].append(np.mean(train_loss))
-            out_dict['test_loss'].append(np.mean(test_loss))
+            mean_train_loss = np.mean(train_loss)
+            mean_test_loss = np.mean(test_loss)
+            out_dict['train_loss'].append(mean_train_loss)
+            out_dict['test_loss'].append(mean_test_loss)
 
             out_dict['train_acc'].append(np.mean(train_acc))
             out_dict['test_acc'].append(np.mean(test_acc))
 
             # Print results of this epoch
-            print(f"Loss train: {np.mean(train_loss):.3f}\t test: {np.mean(test_loss):.3f}\t",
+            print(f"Loss train: {mean_train_loss:.3f}\t test: {mean_test_loss:.3f}\t",
                 f"Accuracy train: {out_dict['train_acc'][-1]*100:.1f}%\t test: {out_dict['test_acc'][-1]*100:.1f}%\t")
             
         # Print final results
-        print(f"Loss train: {np.mean(train_loss):.3f}\t test: {np.mean(test_loss):.3f}\t",
+        print(f"Loss train: {mean_train_loss:.3f}\t test: {mean_test_loss:.3f}\t",
                 f"Accuracy train: {out_dict['train_acc'][-1]*100:.1f}%\t test: {out_dict['test_acc'][-1]*100:.1f}%\t")
         
         return out_dict

@@ -102,7 +102,7 @@ class EdgeBoxesProposer:
         https://docs.opencv.org/3.4/d0/da5/tutorial_ximgproc_prediction.html
 
         Args:
-            image: Input image in BGR format
+            image: Input image in RGB format
 
         Returns:
             edges: Image with edges detected
@@ -121,7 +121,7 @@ class EdgeBoxesProposer:
         """Detects edges in the given image using the Canny edge detection algorithm
 
         Args:
-            image: Input image in BGR format
+            image: Input image in RGB format
 
         Returns:
             edges: Image with edges detected
@@ -135,7 +135,7 @@ class EdgeBoxesProposer:
         the set_edgebox_params() method.
 
         Args:
-            image: Input image in BGR format
+            image: Input image in RGB format
 
         Returns:
             boxes: List of bounding boxes in the format [xmin, ymin, xmax, ymax]

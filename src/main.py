@@ -10,7 +10,7 @@ def main():
     exp = Experiment([TestClassifier], 
                      [{"optimizer": torch.optim.Adam, "params": {"lr": 1e-3}}], 
                      [(nn.BCEWithLogitsLoss(), "Binary Cross Entropy")], 
-                     [5],
+                     [3],
                      PotholeDataModule(), 
                      transforms=[None],
                      description=["Baseline experiment"])
