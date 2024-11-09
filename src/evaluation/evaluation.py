@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 import os
 
 class Evaluation:
@@ -130,7 +131,7 @@ class Evaluation:
         
         return ap, precision, recall
     
-    def plot_precision_recall_curve(self, precision: list, recall: list, path: str = os.path.join(os.getcwd(),'precision_recall_curve.png'), title: str = 'Precision-Recall Curve (IoU=0.5)'):
+    def plot_precision_recall_curve(self, precision: list, recall: list, path: str = os.path.join(os.getcwd(),'precision_recall_curve.png'), title: str = 'Precision-Recall Curve (IoU=0.5)', mAP = 0):
         '''
         Plots the Precision-Recall curve.
         Inputs:
@@ -146,7 +147,12 @@ class Evaluation:
         plt.xlim(-0.05, 1.05)
         plt.ylim(-0.05, 1.05)
         plt.grid(linestyle='--')
+
+         # Add text displaying the mean mAP
+        plt.text(0.6, 0.1, f'mAP: {mAP:.3f}', fontsize=12, color='blue', 
+                bbox=dict(facecolor='white', alpha=0.8))
         plt.savefig(path)
+        plt.close()
     
     def filter_output(self, boxes: list, scores: list) -> list:
         '''
@@ -184,6 +190,34 @@ class Evaluation:
         boxes, scores = self.non_max_suppression(boxes, scores)
         mAP = self.mAP(boxes, scores, ground_truth)
         return boxes, scores, mAP
+    
+    def plot_image_with_boxes(self, image_tensor, true_boxes, proposed_boxes, save_path):
+        # Convert the tensor image to a numpy array for plotting
+        image = image_tensor.cpu().numpy()  # Convert (C, H, W) to (H, W, C)
+        
+        # Create a figure and axis for plotting
+        fig, ax = plt.subplots(1, figsize=(10, 10))
+        ax.imshow(image)
+        
+        # Plot ground truth boxes (in green)
+        for box in true_boxes:
+            xmin, ymin, xmax, ymax = box
+            rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor='g', facecolor='none')
+            ax.add_patch(rect)
+        
+        # Plot proposed boxes (in red)
+        for box in proposed_boxes:
+            xmin, ymin, xmax, ymax = box
+            rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor='r', facecolor='none')
+            ax.add_patch(rect)
+        
+        # Set the title with the image index
+        ax.set_title(f"Model prediction:")
+        plt.axis('off')  # Turn off axis 
+
+        # Save the plot to the specified directory
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close()
 
 if __name__ == "__main__":
     # Test the Evaluation class
