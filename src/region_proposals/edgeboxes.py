@@ -51,7 +51,8 @@ def load_image_and_bboxes (img_dir, img_names):
     for image in img_names:
         imgfile = os.path.join(img_dir, image) + '.jpg'
         bboxfile = os.path.join(img_dir, image) + '.xml'
-        images.append(cv2.imread(imgfile))
+        img = cv2.imread(imgfile)
+        images.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
         bboxes.append(load_bbox(bboxfile))
     return images, bboxes
 
@@ -101,14 +102,17 @@ class EdgeBoxesProposer:
         https://docs.opencv.org/3.4/d0/da5/tutorial_ximgproc_prediction.html
 
         Args:
-            image: Input image in BGR format
+            image: Input image in RGB format
 
         Returns:
             edges: Image with edges detected
             orimap: Orientation map of the edges
         """
-        rgb_im = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        edges = self.edge_detection.detectEdges(np.float32(rgb_im) / 255.0)
+        if (image.max() < 1.01):
+            # Image is already normalized
+            edges = self.edge_detection.detectEdges(np.float32(image))
+        else:
+            edges = self.edge_detection.detectEdges(np.float32(image) / 255.0)
         orimap = self.edge_detection.computeOrientation(edges)
         edges = self.edge_detection.edgesNms(edges, orimap)
         return edges, orimap
@@ -117,7 +121,7 @@ class EdgeBoxesProposer:
         """Detects edges in the given image using the Canny edge detection algorithm
 
         Args:
-            image: Input image in BGR format
+            image: Input image in RGB format
 
         Returns:
             edges: Image with edges detected
@@ -131,7 +135,7 @@ class EdgeBoxesProposer:
         the set_edgebox_params() method.
 
         Args:
-            image: Input image in BGR format
+            image: Input image in RGB format
 
         Returns:
             boxes: List of bounding boxes in the format [xmin, ymin, xmax, ymax]
@@ -283,6 +287,8 @@ class EdgeBoxesProposer:
                 print(f'WARNING: No boxes found for image {i} (likely a bug)')
                 continue
             qualified_boxes, best_boxes, best_ious = self.filter_by_iou_threshold(boxes, bboxes[i])
+            if len(qualified_boxes) == 0:
+                print(f'WARNING: 0 Qualified Boxes found for image {i}')
             qualified_pct, recall, mabo = self.get_metrics(boxes, qualified_boxes, best_boxes, best_ious, bboxes[i])
             qualified_pcts.append(qualified_pct)
             recalls.append(recall)
@@ -304,22 +310,22 @@ class EdgeBoxesProposer:
         best_color = (255, 0, 0) # Color of the best boxes
         gt_color = (0, 0, 255) # Color of the ground truth boxes
         
-        if prop_boxes:
+        if prop_boxes is not None:
             for b in prop_boxes:
                 xmin, ymin, xmax, ymax = b
                 cv2.rectangle(im, (xmin, ymin), (xmax, ymax), prop_color, 1, cv2.LINE_AA)
         
-        if qualified_boxes:
+        if qualified_boxes is not None:
             for b in qualified_boxes:
                 xmin, ymin, xmax, ymax = b
                 cv2.rectangle(im, (xmin, ymin), (xmax, ymax), qualified_color, 2, cv2.LINE_AA)
                 
-        if best_boxes:
+        if best_boxes is not None:
             for b in best_boxes:
                 xmin, ymin, xmax, ymax = b
                 cv2.rectangle(im, (xmin, ymin), (xmax, ymax), best_color, 2, cv2.LINE_AA)
                 
-        if gt_boxes:
+        if gt_boxes is not None:
             for b in gt_boxes:
                 xmin, ymin, xmax, ymax = b
                 cv2.rectangle(im, (xmin, ymin), (xmax, ymax), gt_color, 3, cv2.LINE_AA)
@@ -346,26 +352,54 @@ class EdgeBoxesProposer:
         """
         # Get the bounding box proposals and filter them based on the IoU threshold
         boxes, scores = self.get_proposals(image)
-        qualified_boxes, best_boxes, _ = self.filter_by_iou_threshold(boxes, gt_bbox, iou_threshold)
         
-        # If there are no qualified boxes, return the top n boxes
+        # If no proposals are found, loosen score requirements for this image
+        if len(boxes) == 0:
+            orig_score = self.edge_boxes.getMinScore()
+            self.edge_boxes.setMinScore(0.0)
+            boxes, scores = self.get_proposals(image)
+            self.edge_boxes.setMinScore(orig_score)
+            if len(boxes) == 0:
+                raise ValueError('No bounding boxes found for the image. Likely a bug.')
+            
+        # print('Total Proposed Boxes:', len(boxes))
+        qualified_boxes, best_boxes, _ = self.filter_by_iou_threshold(boxes, gt_bbox, iou_threshold)
+        # self.plot_bboxes(image=image, prop_boxes=boxes[:20], qualified_boxes=qualified_boxes, gt_boxes=gt_bbox)
+        # print('Qualified Boxes:', len(qualified_boxes))
+        
+        # If there are no qualified boxes, return random boxes
+        final_boxes = []
         if len(qualified_boxes) == 0:
-            return boxes[:n], scores[:n]
+            for i in range(n):
+                box = random.choice(boxes)
+                crop = self.crop_image_to_bbox(image, box)
+                final_boxes.append((crop, 0))
+            random.shuffle(final_boxes)
+            images = [box[0] for box in final_boxes]
+            labels = [box[1] for box in final_boxes]
+            return np.array(images, dtype=object), np.array(labels)
         
         # Remove best boxes from the list of qualified boxes
         qualified_boxes = [box for box in qualified_boxes if box not in best_boxes]
         
         # Add the best boxes to the final list
-        final_boxes = []
         for box in best_boxes:
             crop = self.crop_image_to_bbox(image, box)
             final_boxes.append((crop, 1))
-        
+
+        # If there are no qualified boxes, add random best boxes until the positive class ratio is met
+        if len(qualified_boxes) == 0:
+            while len(final_boxes) / n < positive_class_ratio:
+                box = random.choice(best_boxes)
+                crop = self.crop_image_to_bbox(image, box)
+                final_boxes.append((crop, 1))
+                
         # Populate list with qualified boxes until the positive class ratio is met
-        while len(final_boxes) / n < positive_class_ratio:
-            box = random.choice(qualified_boxes)
-            crop = self.crop_image_to_bbox(image, box)
-            final_boxes.append((crop, 1))
+        else:
+            while len(final_boxes) / n < positive_class_ratio:
+                box = random.choice(qualified_boxes)
+                crop = self.crop_image_to_bbox(image, box)
+                final_boxes.append((crop, 1))
         
         # Populate the rest of the list with random boxes
         while len(final_boxes) < n:
@@ -380,7 +414,9 @@ class EdgeBoxesProposer:
         images = [box[0] for box in final_boxes]
         labels = [box[1] for box in final_boxes]
 
-        return images, labels
+        #  self.plot_bboxes(image=image, prop_boxes=boxes[:20], qualified_boxes=qualified_boxes, best_boxes=best_boxes, gt_boxes=gt_bbox)
+
+        return np.array(images, dtype=object), np.array(labels)
     
     def get_n_proposals_test(self, image, n = 50):
         """
@@ -388,15 +424,15 @@ class EdgeBoxesProposer:
         """
         # Get the bounding box proposals
         boxes, scores = self.get_proposals(image)
-        final_boxes = []
+        image_crops = []
         
         # If there are fewer than n boxes, return all the boxes
         for i, box in enumerate(boxes):
             if i == n:
                 break
             crop = self.crop_image_to_bbox(image, box)
-            final_boxes.append((crop, 1))
-        return final_boxes
+            image_crops.append(crop)
+        return np.array(image_crops, dtype=object)
 
 if __name__ == '__main__':
     # Load entire dataset
