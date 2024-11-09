@@ -169,7 +169,7 @@ class Trainer:
                     loss = criterion(output, target.clone().detach().float())
 
                     test_loss_in_batch.append(loss.item())
-                    predicted = (output > 0.5).float()
+                    predicted = (torch.sigmoid(output) > 0.5).float()
                     test_correct += (target==predicted).sum().cpu().item()
                     test_acc_in_batch.append(test_correct / 64.0)
                 
