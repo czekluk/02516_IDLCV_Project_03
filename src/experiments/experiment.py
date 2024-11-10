@@ -174,7 +174,7 @@ class Experiment:
                 with torch.no_grad():
                     output = model(tensor_crops).view(-1)
                 
-                predicted = (torch.sigmoid(output) > 0.5).float()
+                predicted = (torch.sigmoid(output)).float()
                 # Filter predicted boxes with probability < 0.5 for detecting a pothole
                 boxes, scores = eval.filter_output(predicted_boxes, predicted.cpu().numpy())
                 # Do a non max supression for overlapping boxes that detect the same object
