@@ -99,10 +99,14 @@ class Trainer:
         
         
         edgebox_params = {
-            'max_boxes': 1000,
-            'min_score': 0.001,
+            'max_boxes': 4000,
+            'min_score': 0.0001,
+            "alpha": 0.8,
+            "beta": 0.75,
+            "edge_min_mag": 0.05
         }
         edgebox_proposer = EdgeBoxesProposer(XIMGPROC_MODEL, edgebox_params)
+        n = 500
         for epoch in tqdm(range(num_epochs), unit='epoch'):
             model.train()
             train_loss = []
@@ -115,12 +119,12 @@ class Trainer:
                 # For each image in the batch
                 for batch_image, true_boxes in zip(data, targets):
                     train_correct = 0
-                    crops, target = edgebox_proposer.get_n_proposals_train(batch_image.numpy(), true_boxes.numpy(), iou_threshold=0.5, n=64)
+                    crops, target = edgebox_proposer.get_n_proposals_train(batch_image.numpy(), true_boxes.numpy(), iou_threshold=0.75, n=n, positive_class_ratio=0.3)
                 
                     # Define the resize transform to a uniform size
                     resize_transform = transforms.Compose([
                         transforms.ToPILImage(),
-                        transforms.Resize((64, 64)),
+                        transforms.Resize((224, 224)),
                         transforms.ToTensor()
                     ])
                     tensor_crops = torch.stack([resize_transform(crop) for crop in crops])
@@ -137,7 +141,7 @@ class Trainer:
                     train_loss_in_batch.append(loss.item())
                     predicted = (torch.sigmoid(output) > 0.5).float()
                     train_correct += (target==predicted).sum().cpu().item()
-                    train_acc_in_batch.append(train_correct / 64.0)
+                    train_acc_in_batch.append(train_correct / n)
                 
                 train_loss.append(np.mean(train_loss_in_batch))
                 train_acc.append(np.mean(train_acc_in_batch))
@@ -150,12 +154,12 @@ class Trainer:
                 test_loss_in_batch = []
                 for batch_image, true_boxes in zip(data, targets):
                     test_correct = 0
-                    crops, target = edgebox_proposer.get_n_proposals_train(batch_image.numpy(), true_boxes.numpy(), iou_threshold=0.5, n=64)
+                    crops, target = edgebox_proposer.get_n_proposals_train(batch_image.numpy(), true_boxes.numpy(), iou_threshold=0.75, n=n, positive_class_ratio=0.3)
             
                     # Define the resize transform to a uniform size
                     resize_transform = transforms.Compose([
                         transforms.ToPILImage(),
-                        transforms.Resize((64, 64)),
+                        transforms.Resize((224, 224)),
                         transforms.ToTensor()
                     ])
                     tensor_crops = torch.stack([resize_transform(crop) for crop in crops])
@@ -171,7 +175,7 @@ class Trainer:
                     test_loss_in_batch.append(loss.item())
                     predicted = (torch.sigmoid(output) > 0.5).float()
                     test_correct += (target==predicted).sum().cpu().item()
-                    test_acc_in_batch.append(test_correct / 64.0)
+                    test_acc_in_batch.append(test_correct / n)
                 
                 test_acc.append(np.mean(test_acc_in_batch))
                 test_loss.append(np.mean(test_loss_in_batch))
