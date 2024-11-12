@@ -119,20 +119,24 @@ class Experiment:
             if "timestamp" in entry:
                 entry["timestamp"] = str(entry["timestamp"])
 
-    def visualize(self):
+    def visualize(self, result_path=None, model_path=None):
         '''
         Visualize the experiment results.
         '''
-        if self.results is None:
-            print("No results to visualize. Run the experiment first.")
-            return
-        
-        best_model = self.results[0]
+        if result_path is not None and model_path is not None:
+            figure_path = os.path.join(result_path, "figures")
+            models_path = os.path.join(result_path, "saved_models")
+        else:
+            if self.results is None:
+                print("No results to visualize. Run the experiment first.")
+                return
+            
+            best_model = self.results[0]
 
-        result_path = os.path.join(self.save_dir, f"{self.timestamp}_{self.description}")
-        figure_path = os.path.join(result_path, "figures")
-        models_path = os.path.join(result_path, "saved_models")
-        model_path = os.path.join(models_path, f"{self.timestamp}_{self.description}_{best_model['test_acc'][-1]:.4f}_{best_model['model_name']}.pth")
+            result_path = os.path.join(self.save_dir, f"{self.timestamp}_{self.description}")
+            figure_path = os.path.join(result_path, "figures")
+            models_path = os.path.join(result_path, "saved_models")
+            model_path = os.path.join(models_path, f"{self.timestamp}_{self.description}_{best_model['test_acc'][-1]:.4f}_{best_model['model_name']}.pth")
 
         # Create directories if they don't exist
         if not os.path.exists(figure_path):
@@ -142,30 +146,35 @@ class Experiment:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         model = ClassifierAlexNet64()
-        model = torch.load(model_path, map_location=device)
+        model = torch.load(model_path, map_location=device, weights_only=False)
         model.to(device)
         model.eval()
 
         edgebox_params = {
-            'max_boxes': 1000,
-            'min_score': 0.001,
+            'max_boxes': 4000,
+            'min_score': 0.0001,
+            "alpha": 0.8,
+            "beta": 0.75,
+            "edge_min_mag": 0.05
         }
         edgebox_proposer = EdgeBoxesProposer(XIMGPROC_MODEL, edgebox_params)
-        eval = Evaluation(nms_iou_threshold=0.7, map_iou_threshold=0.5, score_threshold=0.5)
+        eval = Evaluation(nms_iou_threshold=0.2, map_iou_threshold=0.5, score_threshold=0.6)
         mAPs = []
         all_precisions = []
         all_recalls = []
         tested_images = []
         tested_true_boxes = []
         proposed_boxes = []
+        proposed_scores = []
+        proposed_ious = []
         for minibatch_no, (data, targets) in tqdm(enumerate(self.testloader), total=len(self.testloader)):
             for batch_image, true_boxes in zip(data, targets):
-                crops, predicted_boxes = edgebox_proposer.get_n_proposals_test(batch_image.numpy(), n=100)
+                crops, predicted_boxes = edgebox_proposer.get_n_proposals_test(batch_image.numpy(), n=1000)
         
                 # Define the resize transform to a uniform size
                 resize_transform = transforms.Compose([
                     transforms.ToPILImage(),
-                    transforms.Resize((64, 64)),
+                    transforms.Resize((224, 224)),
                     transforms.ToTensor()
                 ])
                 tensor_crops = torch.stack([resize_transform(crop) for crop in crops])
@@ -180,37 +189,50 @@ class Experiment:
                 # Do a non max supression for overlapping boxes that detect the same object
                 boxes, scores = eval.non_max_suppression(boxes, scores)
                 # Get the mAP
-                mAP, precision, recall = eval.mAP(boxes, scores, true_boxes)
+                mAP, precision, recall, ious = eval.mAP(boxes, scores, true_boxes)
                 mAPs.append(mAP)
                 all_precisions.append(precision)
                 all_recalls.append(recall)
                 tested_images.append(batch_image)
                 tested_true_boxes.append(true_boxes)
                 proposed_boxes.append(boxes)
+                proposed_scores.append(scores)
+                proposed_ious.append(ious)
         
         mAPs = np.array(mAPs)
         # This sumarrizes our whole model and we can use it later in plots or whatever so keep it here
         mean_mAP = np.mean(mAPs)
-        
+        print(f"Mean mAP: {mean_mAP}")
+        print("#############################")
         # Find images that had the highest mAP
-        N = 5
-        top_N_indices = np.argpartition(mAPs, -N)[-N:]
-        top_N_mAPs = [mAPs[i] for i in top_N_indices]
+        N = 20
+        # N_indices = np.argpartition(mAPs, -N)[-N:]
+        N_indices = np.random.choice(len(mAPs), N, replace=False)
+        top_N_mAPs = [mAPs[i] for i in N_indices]
         # Extract the precision and recall lists for the top 5 mAPs
-        top_N_precisions = [all_precisions[i] for i in top_N_indices]
-        top_N_recalls = [all_recalls[i] for i in top_N_indices]
-        top_N_images, top_N_true_boxes = [tested_images[i] for i in top_N_indices], [tested_true_boxes[i] for i in top_N_indices]
-        top_N_proposed_boxes = [proposed_boxes[i] for i in top_N_indices]
+        N_precisions = [all_precisions[i] for i in N_indices]
+        N_recalls = [all_recalls[i] for i in N_indices]
+        N_images, N_true_boxes = [tested_images[i] for i in N_indices], [tested_true_boxes[i] for i in N_indices]
+        N_proposed_boxes = [proposed_boxes[i] for i in N_indices]
+        N_proposed_scores = [proposed_scores[i] for i in N_indices]
+        N_proposed_ious = [proposed_ious[i] for i in N_indices]
         for i in range(N):
             # Make precision recall curve
-            eval.plot_precision_recall_curve(precision=top_N_precisions[i], 
-                                            recall=top_N_recalls[i], 
+            print(f"precision_recall_curve_{i+1}")
+            print(f"Precision: {N_precisions[i]}")
+            print(f"Recall: {N_recalls[i]}")
+            print(top_N_mAPs[i])
+            print("#############################")
+            eval.plot_precision_recall_curve(precision=N_precisions[i], 
+                                            recall=N_recalls[i], 
                                             path=os.path.join(figure_path, f"precision_recall_curve_{i+1}.png"), 
                                             title='Precision-Recall Curve (IoU=0.5)', 
                                             mAP=top_N_mAPs[i])
-            eval.plot_image_with_boxes(image_tensor=top_N_images[i],
-                                       true_boxes=top_N_true_boxes[i],
-                                       proposed_boxes=top_N_proposed_boxes[i],
+            eval.plot_image_with_boxes(image_tensor=N_images[i],
+                                       true_boxes=N_true_boxes[i],
+                                       proposed_boxes=N_proposed_boxes[i],
+                                       proposed_scores=N_proposed_scores[i],
+                                       proposed_ious=N_proposed_ious[i],
                                        save_path=os.path.join(figure_path, f"prediction_{i+1}.png"))
             
 

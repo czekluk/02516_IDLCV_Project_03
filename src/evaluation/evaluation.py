@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import os
+import random
 
 class Evaluation:
     def __init__(self, nms_iou_threshold=0.7, map_iou_threshold=0.5, score_threshold=0.5):
@@ -34,7 +35,8 @@ class Evaluation:
         comp_idx = 1
         while base_idx < len(boxes) - 1:
             while comp_idx < len(boxes):
-                if self.iou(boxes[base_idx], boxes[comp_idx]) > self.nms_iou_threshold:
+                if self.iou(boxes[base_idx], boxes[comp_idx]) > self.nms_iou_threshold or \
+                    self.get_intersection(boxes[base_idx], boxes[comp_idx]) >= 0.65 * self.get_area(boxes[comp_idx]):
                     boxes.pop(comp_idx)
                     scores.pop(comp_idx)
                 else:
@@ -72,16 +74,18 @@ class Evaluation:
             return 0
         else:
             return (x_right - x_left + 1) * (y_bottom - y_top + 1)
+    
+    def get_area(self, box_coords):
+        xmin, ymin, xmax, ymax = box_coords
+        area = (xmax - xmin + 1) * (ymax - ymin + 1)
+        return area
 
     def get_union(self, area1: list, area2: list) -> float:
         '''
         taken from Alex part
         '''
-        xmin_1, ymin_1, xmax_1, ymax_1 = area1
-        xmin_2, ymin_2, xmax_2, ymax_2 = area2
-        
-        area_1 = (xmax_1 - xmin_1 + 1) * (ymax_1 - ymin_1 + 1)
-        area_2 = (xmax_2 - xmin_2 + 1) * (ymax_2 - ymin_2 + 1)
+        area_1 = self.get_area(area1)
+        area_2 = self.get_area(area2)
         
         return area_1 + area_2 - self.get_intersection(area1, area2)
 
@@ -107,6 +111,7 @@ class Evaluation:
 
         precision = []
         recall = []
+        ious = np.zeros(len(boxes))
 
         # go through all boxes and compare with ground truths
         for box_id in range(len(boxes)):
@@ -116,6 +121,10 @@ class Evaluation:
                     if self.iou(boxes[box_id], ground_truth[gt_id]) > self.map_iou_threshold:
                         gt_mask[gt_id] = 1
                         box_mask[box_id] = 1
+                        ious[box_id] = self.iou(boxes[box_id], ground_truth[gt_id])
+                        break
+                    if self.iou(boxes[box_id], ground_truth[gt_id]) > 0:
+                        ious[box_id] = self.iou(boxes[box_id], ground_truth[gt_id])
 
             # calculate precision and recall
             precision.append(np.sum(box_mask) / (box_id + 1))
@@ -129,7 +138,7 @@ class Evaluation:
             else:
                 ap += (recall[i] - recall[i-1]) * precision[i]
         
-        return ap, precision, recall
+        return ap, precision, recall, ious
     
     def plot_precision_recall_curve(self, precision: list, recall: list, path: str = os.path.join(os.getcwd(),'precision_recall_curve.png'), title: str = 'Precision-Recall Curve (IoU=0.5)', mAP = 0):
         '''
@@ -191,7 +200,7 @@ class Evaluation:
         mAP = self.mAP(boxes, scores, ground_truth)
         return boxes, scores, mAP
     
-    def plot_image_with_boxes(self, image_tensor, true_boxes, proposed_boxes, save_path):
+    def plot_image_with_boxes(self, image_tensor, true_boxes, proposed_boxes, proposed_scores, proposed_ious, save_path):
         # Convert the tensor image to a numpy array for plotting
         image = image_tensor.cpu().numpy()  # Convert (C, H, W) to (H, W, C)
         
@@ -204,13 +213,23 @@ class Evaluation:
             xmin, ymin, xmax, ymax = box
             rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor='g', facecolor='none')
             ax.add_patch(rect)
-        
-        # Plot proposed boxes (in red)
-        for box in proposed_boxes:
+
+        # Plot proposed boxes (in random colors)
+        for idx, box in enumerate(proposed_boxes):
             xmin, ymin, xmax, ymax = box
-            rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor='r', facecolor='none')
+            
+            # Generate a random color, avoiding green
+            color = (random.random(), random.random(), random.random())
+            while color[1] > 0.5 and color[0] < 0.5 and color[2] < 0.5:  # Avoid colors close to green
+                color = (random.random(), random.random(), random.random())
+            
+            # Draw the proposed box
+            rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor=color, facecolor='none')
             ax.add_patch(rect)
-        
+            
+            # Display the score on the top-left corner of the box
+            ax.text(xmin, ymin, f'{proposed_scores[idx]:.2f}, iou: {proposed_ious[idx]:.2f}', color=color, fontsize=10, verticalalignment='top', fontweight='bold')
+
         # Set the title with the image index
         ax.set_title(f"Model prediction:")
         plt.axis('off')  # Turn off axis 
@@ -250,4 +269,4 @@ if __name__ == "__main__":
     print(f"Recall: {recall[-1]}")
 
     # Test plot_precision_recall_curve
-    eval.plot_precision_recall_curve(precision, recall, path=os.path.join(os.getcwd(),'precision_recall_curve.png'), title='Precision-Recall Curve (IoU=0.5)')
+    eval.plot_precision_recall_curve(precision, recall, path=os.path.join(os.getcwd(),'precision_recall_curve.png'), title='Precision-Recall Curve (IoU=0.5)', mAP=mAP)

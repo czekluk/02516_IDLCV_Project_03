@@ -7,10 +7,11 @@ import numpy as np
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
 import random
+from data_loader.make_dataset import PotholeDataModule
 
 
-PROJECT_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath('')))
-XIMGPROC_MODEL = os.path.join(PROJECT_BASE_DIR, 'ximgproc_model.yml.gz')
+PROJECT_BASE_DIR = os.path.dirname(os.path.abspath(''))
+XIMGPROC_MODEL = os.path.join(PROJECT_BASE_DIR, 'src', 'region_proposals', 'ximgproc_model.yml.gz')
 RAW_IMG_DIR = os.path.join(PROJECT_BASE_DIR, 'data', 'raw', 'Potholes', 'annotated-images')
 
 #---------------------------------#
@@ -145,7 +146,11 @@ class EdgeBoxesProposer:
         prep_boxes, scores = self.edge_boxes.getBoundingBoxes(edges, orimap)
         # Convert the boxes from [x, y, w, h] to [xmin, ymin, width, height]
         boxes = [[box[0], box[1], box[0] + box[2], box[1] + box[3]] for box in prep_boxes]
-        return boxes, scores
+        
+        sorted_boxes_scores = sorted(zip(boxes, scores), key=lambda x: x[1], reverse=True)
+        sorted_boxes, sorted_scores = zip(*sorted_boxes_scores)
+        
+        return list(sorted_boxes), list(sorted_scores)
         
     def get_intersection(self, box1, box2):
         """Calculates the intersection area of two bounding boxes
@@ -258,6 +263,7 @@ class EdgeBoxesProposer:
         mabo = np.sum(best_ious) / len(gt_boxes)
 
         if print_output:
+            print()
             print('Total Proposed Boxes:', len(prop_boxes))
             print(f'Qualified Ratio: {len(qualified_boxes) / len(prop_boxes):.3f}')
             print(f'Recall: {recall:.3f}')
@@ -265,7 +271,7 @@ class EdgeBoxesProposer:
         
         return qualified_pct, recall, mabo
     
-    def evaluate_dataset(self, images, bboxes):
+    def evaluate_dataset(self, images, bboxes, io_threshold=0.5):
         """Creates and evaluates the object proposals for the dataset. Prints metrics for comparison.
 
         Args:
@@ -286,9 +292,9 @@ class EdgeBoxesProposer:
             if len(boxes) == 0:
                 print(f'WARNING: No boxes found for image {i} (likely a bug)')
                 continue
-            qualified_boxes, best_boxes, best_ious = self.filter_by_iou_threshold(boxes, bboxes[i])
-            if len(qualified_boxes) == 0:
-                print(f'WARNING: 0 Qualified Boxes found for image {i}')
+            qualified_boxes, best_boxes, best_ious = self.filter_by_iou_threshold(boxes, bboxes[i], io_threshold)
+            # if len(qualified_boxes) == 0:
+            #     print(f'WARNING: 0 Qualified Boxes found for image {i}')
             qualified_pct, recall, mabo = self.get_metrics(boxes, qualified_boxes, best_boxes, best_ious, bboxes[i])
             qualified_pcts.append(qualified_pct)
             recalls.append(recall)
@@ -434,9 +440,55 @@ class EdgeBoxesProposer:
             image_crops.append(crop)
         return np.array(image_crops, dtype=object), np.array(boxes)
 
+
+def grid_search():
+    max_boxes = [4]
+    max_boxes = [int(boxes * 1000) for boxes in max_boxes]
+    min_scores = [0.0001]
+    iou_thresholds = [0.75]
+    alpha = 0.8
+    beta = 0.75
+    edge_min_mag = 0.05
+    edge_merge_thr = 0.5
+    
+    results = []
+    
+    datamodule = PotholeDataModule()
+    train_dataset = datamodule.train_dataset
+    _, images_to_load = train_dataset.get_image_paths()
+    images_to_load = [img[:-4] for img in images_to_load]
+    images, gt_bboxes = load_image_and_bboxes(RAW_IMG_DIR, images_to_load)
+    for max_box in max_boxes:
+        for min_score in min_scores:
+            for iou_threshold in iou_thresholds:
+                print(f"Evaluating: max_boxes: {max_box}, min_score: {min_score}, iou_threshold: {iou_threshold}, alpha: {alpha}, beta: {beta}, edge_min_mag: {edge_min_mag}, edge_merge_thr: {edge_merge_thr}")
+                edgebox_params = {
+                    'max_boxes': max_box,
+                    'min_score': min_score,
+                    'alpha': alpha,
+                    'beta': beta,
+                    'edge_min_mag': edge_min_mag,
+                    'edge_merge_thr': edge_merge_thr
+                }
+                eb = EdgeBoxesProposer(XIMGPROC_MODEL, edgebox_params)
+                total_qualified, total_recall, total_mabo = eb.evaluate_dataset(images, gt_bboxes, iou_threshold)
+                edgebox_params.update({"recall": total_recall, "iou_threshold": iou_threshold})
+                results.append(edgebox_params)
+    print("#####################################")
+    print("#####################################")
+    results.sort(key=lambda x: x["recall"], reverse=True)
+    for result in results:
+        print(result)
+        print("--------------------")
+
 if __name__ == '__main__':
+    # grid_search()
     # Load entire dataset
-    images_to_load = ['img-' + str(i) for i in range(1, 666)]
+    # images_to_load = ['img-' + str(i) for i in range(1, 666)]
+    datamodule = PotholeDataModule()
+    train_dataset = datamodule.train_dataset
+    _, images_to_load = train_dataset.get_image_paths()
+    images_to_load = [img[:-4] for img in images_to_load]
     images, gt_bboxes = load_image_and_bboxes(RAW_IMG_DIR, images_to_load)
     
     # Evaluate dataset using params
@@ -444,10 +496,11 @@ if __name__ == '__main__':
     # TODO: Tune the parameters for better results
     # https://docs.opencv.org/3.4/d4/d0d/group__ximgproc__edgeboxes.html
     edgebox_params = {
-        'max_boxes': 1000,
+        'max_boxes': 5000,
+        'min_score': 0.0001,
     }
     eb = EdgeBoxesProposer(XIMGPROC_MODEL, edgebox_params)
-    # eb.evaluate_dataset(images, gt_bboxes)
+    eb.evaluate_dataset(images, gt_bboxes, 0.7)
 
     # Plot random image with bounding boxes
     index = random.randint(0, len(images) - 1)

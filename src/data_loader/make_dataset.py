@@ -29,7 +29,7 @@ class PotholeDataSet(Dataset):
         # list of XML file paths
         self.xml_paths = self.get_xml_paths()
         # list of image paths
-        self.image_paths = self.get_image_paths()
+        self.image_paths, _ = self.get_image_paths()
         # dictinary, key: image name, value: bounding boxes- list of lists
         self.all_bounding_boxes = self.process_xml_files()
         self.output_directory = os.path.join(VISUALIZATION_DIR, "train" if train else "test")
@@ -86,14 +86,16 @@ class PotholeDataSet(Dataset):
         Gets the list of image paths based on the XML files.
         """
         image_paths = []
+        image_names = []
         for xml_path in self.xml_paths:
             tree = ET.parse(xml_path)
             root = tree.getroot()
             path = root.find('path').text
             image_name = os.path.basename(path)
+            image_names.append(image_name)
             image_path = os.path.join(DATA_DIR, image_name)
             image_paths.append(image_path)
-        return image_paths
+        return image_paths, image_names
 
     def draw_bounding_boxes(self, image_path, boxes):
         """
