@@ -86,21 +86,13 @@ class Inference:
         # plot the best NMS result
         eval.plot_NMS_results(tested_images, proposed_boxes, pre_nms_boxes, self.nms_iou, save_path=os.path.join(self.figure_path, f"nms_results.png"))
         print(f"mAP: {mAP}")
-        sum_prec, sum_rec = 0, 0
-        for prec, rec in zip(all_precisions, all_recalls):
-            if len(prec) > 0:
-                sum_prec += prec[-1]
-            if len(rec) > 0:
-                sum_rec += rec[-1]
-        mPrec = sum_prec / len(all_precisions)
-        mRec = sum_rec / len(all_recalls)
-        print(f"mean precision: {mPrec}")
-        print(f"mean recall: {mRec}")
+        print(f"mean precision: {precision[-1]}")
+        print(f"mean recall: {recall[-1]}")
 
         res_dict =  {
             "mAP": mAP,
-            "mean_precision": mPrec,
-            "mean_recall": mRec
+            "mean_precision": precision[-1],
+            "mean_recall": recall[-1],
         }
 
         with open(os.path.join(self.figure_path, "results.json"), 'w') as f:
@@ -129,27 +121,7 @@ if __name__ == "__main__":
     }
     edgebox_proposer = EdgeBoxesProposer(XIMGPROC_MODEL, edgebox_params)
 
-    inf = Inference(model, edgebox_proposer, nms_iou=0.5, map_iou=0.5, score_threshold=0.5, 
-                    figure_path=os.path.join(PROJECT_BASE_DIR, "results","inference"))
-    inf.run_inference(testloader)
-
-    inf = Inference(model, edgebox_proposer, nms_iou=0.2, map_iou=0.5, score_threshold=0.5, 
-                    figure_path=os.path.join(PROJECT_BASE_DIR, "results","inference"))
-    inf.run_inference(testloader)
-
-    inf = Inference(model, edgebox_proposer, nms_iou=0.7, map_iou=0.5, score_threshold=0.5, 
-                    figure_path=os.path.join(PROJECT_BASE_DIR, "results","inference"))
-    inf.run_inference(testloader)
-
-    inf = Inference(model, edgebox_proposer, nms_iou=0.5, map_iou=0.95, score_threshold=0.5, 
-                    figure_path=os.path.join(PROJECT_BASE_DIR, "results","inference"))
-    inf.run_inference(testloader)
-
-    inf = Inference(model, edgebox_proposer, nms_iou=0.2, map_iou=0.95, score_threshold=0.5, 
-                    figure_path=os.path.join(PROJECT_BASE_DIR, "results","inference"))
-    inf.run_inference(testloader)
-
-    inf = Inference(model, edgebox_proposer, nms_iou=0.7, map_iou=0.95, score_threshold=0.5, 
+    inf = Inference(model, edgebox_proposer, nms_iou=0.8, map_iou=0.8, score_threshold=0.5, 
                     figure_path=os.path.join(PROJECT_BASE_DIR, "results","inference"))
     inf.run_inference(testloader)
 

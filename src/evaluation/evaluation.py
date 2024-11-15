@@ -354,15 +354,15 @@ class Evaluation:
             ax.axis('off')
             for box in true_boxes[i]:
                 xmin, ymin, xmax, ymax = box
-                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor='g', facecolor='none')
+                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=4, edgecolor='g', facecolor='none')
                 ax.add_patch(rect)
 
             for idx, box in enumerate(proposed_boxes[i]):
                 xmin, ymin, xmax, ymax = box
                 color = (random.random(), random.random(), random.random())
-                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor=color, facecolor='none')
+                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=4, edgecolor=color, facecolor='none')
                 ax.add_patch(rect)
-                ax.text(xmin, ymin, f'{proposed_scores[i][idx]:.2f}, iou: {proposed_ious[i][idx]:.2f}', color=color, fontsize=10, verticalalignment='top', fontweight='bold')
+                ax.text(xmin, ymin, f'{proposed_scores[i][idx]:.2f}', color=color, fontsize=20, verticalalignment='top', fontweight='bold')
 
             # Set the title with the image index
             ax.set_title(f"Prediction")
@@ -391,22 +391,22 @@ class Evaluation:
             ax.axis('off')
             for box in true_boxes[i]:
                 xmin, ymin, xmax, ymax = box
-                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor='g', facecolor='none')
+                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=4, edgecolor='g', facecolor='none')
                 ax.add_patch(rect)
 
             for idx, box in enumerate(proposed_boxes[i]):
                 xmin, ymin, xmax, ymax = box
                 color = (random.random(), random.random(), random.random())
-                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor=color, facecolor='none')
+                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=4, edgecolor=color, facecolor='none')
                 ax.add_patch(rect)
-                ax.text(xmin, ymin, f'{proposed_scores[i][idx]:.2f}, iou: {proposed_ious[i][idx]:.2f}', color=color, fontsize=10, verticalalignment='top', fontweight='bold')
+                ax.text(xmin, ymin, f'{proposed_scores[i][idx]:.2f}', color=color, fontsize=20, verticalalignment='top', fontweight='bold')
 
             # Set the title with the image index
             ax.set_title(f"Prediction")
             plt.axis('off')  # Turn off axis
 
             # Save the plot to the specified directory
-            plt.savefig(os.path.join(save_path,f"best_prediciton_{i:02}.png"), bbox_inches='tight')
+            plt.savefig(os.path.join(save_path,f"worst_prediciton_{i:02}.png"), bbox_inches='tight')
             plt.close()
 
 if __name__ == "__main__":
