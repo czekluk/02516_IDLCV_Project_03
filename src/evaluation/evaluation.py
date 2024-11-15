@@ -11,6 +11,9 @@ class Evaluation:
         self.map_iou_threshold = map_iou_threshold
         self.score_threshold = score_threshold
 
+        self.true_list = []
+        self.pred_list = []
+
     def non_max_suppression(self, boxes: list, scores: list) -> list:
         '''
         Calculates the non-max suppression for the given boxes and scores.
@@ -88,10 +91,59 @@ class Evaluation:
         area_2 = self.get_area(area2)
         
         return area_1 + area_2 - self.get_intersection(area1, area2)
-
-    def mAP(self, boxes: list, scores: list, ground_truth: list) -> float:
+    
+    def prep_mAP(self, boxes, scores, ground_truth, img_idx):
         '''
-        Calculates the mean Average Precision (mAP) for given boxes & ground truths.
+        prepare data structures for mAP calculation.
+        To be called after each image.
+        '''
+        for gt in ground_truth:
+            self.true_list.append({"img_idx": img_idx, "box": gt})
+
+        for i in range(len(boxes)):
+            self.pred_list.append({"img_idx": img_idx, "box": boxes[i], "score": scores[i]})
+
+    def mAP(self):
+        '''
+        Calculate mean Average Precision (mAP) for all images.
+        To be called after all images have been processed.
+        '''
+        # sort detections in decreasing order of confidence scores
+        self.pred_list = sorted(self.pred_list, key=lambda x: x["score"], reverse=True)
+
+        gt_mask = np.zeros(len(self.true_list))
+        box_mask = np.zeros(len(self.pred_list))
+
+        precision = []
+        recall = []
+
+        # go through all boxes and compare with ground truths
+        for box_id in range(len(self.pred_list)):
+            # calculate iou with all ground truths
+            for gt_id in range(len(self.true_list)):
+                if self.pred_list[box_id]["img_idx"] == self.true_list[gt_id]["img_idx"] and gt_mask[gt_id] == 0:
+                    if self.iou(self.pred_list[box_id]["box"], self.true_list[gt_id]["box"]) > self.map_iou_threshold:
+                        gt_mask[gt_id] = 1
+                        box_mask[box_id] = 1
+                        break
+
+            # calculate precision and recall
+            precision.append(np.sum(box_mask) / (box_id + 1))
+            recall.append(np.sum(gt_mask) / len(self.true_list))
+
+        # calculate average precision
+        ap = 0
+        for i in range(len(precision)):
+            if i == 0:
+                ap += recall[i] * precision[i]
+            else:
+                ap += (recall[i] - recall[i-1]) * precision[i]
+        
+        return ap, precision, recall
+
+    def AP(self, boxes: list, scores: list, ground_truth: list) -> float:
+        '''
+        Calculates the Average Precision (AP) for given boxes & ground truths for a single image.
         Should be called after non-max suppression.
         To be used for only one image. Loop over all images to get mAP for the dataset.
         Inputs:
@@ -237,6 +289,125 @@ class Evaluation:
         # Save the plot to the specified directory
         plt.savefig(save_path, bbox_inches='tight')
         plt.close()
+
+    def plot_NMS_results(self, image_tensor, boxes, boxes_pre_nms, nms_iou, save_path):
+        # Find the box with the biggest reduction in boxes after NMS
+        # This is the best example for NMS
+        biggest_red = 0
+        red_idx = None
+        for i in range(len(boxes)):
+            if len(boxes_pre_nms[i])-len(boxes[i]) > biggest_red:
+                biggest_red = len(boxes_pre_nms[i])-len(boxes[i])
+                red_idx = i
+
+        # Convert the tensor image to a numpy array for plotting
+        image = image_tensor[red_idx].cpu().numpy()
+
+        # Create a figure and axis for plotting
+        fig, ax = plt.subplots(1, 2, figsize=(10, 7))
+        ax[0].imshow(image)
+        ax[1].imshow(image)
+
+        ax[0].axis('off')
+        ax[1].axis('off')
+
+        # Plot the boxes before NMS
+        for box in boxes_pre_nms[red_idx]:
+            xmin, ymin, xmax, ymax = box
+            rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor='g', facecolor='none')
+            ax[0].add_patch(rect)
+
+        # Plot the boxes after NMS
+        for box in boxes[red_idx]:
+            xmin, ymin, xmax, ymax = box
+            rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=2, edgecolor='g', facecolor='none')
+            ax[1].add_patch(rect)
+
+        # Set the title with the image index
+        ax[0].set_title(f"Pre NMS boxes")
+        ax[1].set_title(f"Post NMS boxes")
+        plt.axis('off')  # Turn off axis 
+        plt.title(f"NMS with IoU threshold: {nms_iou}")
+
+        # Save the plot to the specified directory
+        plt.savefig(save_path, bbox_inches='tight')
+        plt.close()
+
+    def plot_best_predictions(self, image_list, true_boxes_list, proposed_boxes_list, proposed_scores_list, proposed_ious_list, AP_list, n_img, save_path):
+        # Find the best n_img images
+        best_idx = np.argsort(AP_list)[-n_img:]
+        images = [image_list[i] for i in best_idx]
+        true_boxes = [true_boxes_list[i] for i in best_idx]
+        proposed_boxes = [proposed_boxes_list[i] for i in best_idx]
+        proposed_scores = [proposed_scores_list[i] for i in best_idx]
+        proposed_ious = [proposed_ious_list[i] for i in best_idx]
+
+        # Create a figure and axis for plotting	
+        
+        for i in range(n_img):
+            # Convert the tensor image to a numpy array for plotting
+            fig, ax = plt.subplots(1, figsize=(20, 20))
+            image = images[i].cpu().numpy()
+
+            # Plot the image with the boxes
+            ax.imshow(image)
+            ax.axis('off')
+            for box in true_boxes[i]:
+                xmin, ymin, xmax, ymax = box
+                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=4, edgecolor='g', facecolor='none')
+                ax.add_patch(rect)
+
+            for idx, box in enumerate(proposed_boxes[i]):
+                xmin, ymin, xmax, ymax = box
+                color = (random.random(), random.random(), random.random())
+                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=4, edgecolor=color, facecolor='none')
+                ax.add_patch(rect)
+                ax.text(xmin, ymin, f'{proposed_scores[i][idx]:.2f}', color=color, fontsize=20, verticalalignment='top', fontweight='bold')
+
+            # Set the title with the image index
+            ax.set_title(f"Prediction")
+            plt.axis('off')  # Turn off axis
+
+            # Save the plot to the specified directory
+            plt.savefig(os.path.join(save_path,f"best_prediciton_{i:02}.png"), bbox_inches='tight')
+            plt.close()
+
+    def plot_worst_predictions(self, image_list, true_boxes_list, proposed_boxes_list, proposed_scores_list, proposed_ious_list, AP_list, n_img, save_path):
+        # Find the best n_img images
+        best_idx = np.argsort(AP_list)[:n_img]
+        images = [image_list[i] for i in best_idx]
+        true_boxes = [true_boxes_list[i] for i in best_idx]
+        proposed_boxes = [proposed_boxes_list[i] for i in best_idx]
+        proposed_scores = [proposed_scores_list[i] for i in best_idx]
+        proposed_ious = [proposed_ious_list[i] for i in best_idx]
+
+        for i in range(n_img):
+            # Convert the tensor image to a numpy array for plotting
+            fig, ax = plt.subplots(1, figsize=(20, 20))
+            image = images[i].cpu().numpy()
+
+            # Plot the image with the boxes
+            ax.imshow(image)
+            ax.axis('off')
+            for box in true_boxes[i]:
+                xmin, ymin, xmax, ymax = box
+                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=4, edgecolor='g', facecolor='none')
+                ax.add_patch(rect)
+
+            for idx, box in enumerate(proposed_boxes[i]):
+                xmin, ymin, xmax, ymax = box
+                color = (random.random(), random.random(), random.random())
+                rect = patches.Rectangle((xmin, ymin), xmax - xmin, ymax - ymin, linewidth=4, edgecolor=color, facecolor='none')
+                ax.add_patch(rect)
+                ax.text(xmin, ymin, f'{proposed_scores[i][idx]:.2f}', color=color, fontsize=20, verticalalignment='top', fontweight='bold')
+
+            # Set the title with the image index
+            ax.set_title(f"Prediction")
+            plt.axis('off')  # Turn off axis
+
+            # Save the plot to the specified directory
+            plt.savefig(os.path.join(save_path,f"worst_prediciton_{i:02}.png"), bbox_inches='tight')
+            plt.close()
 
 if __name__ == "__main__":
     # Test the Evaluation class

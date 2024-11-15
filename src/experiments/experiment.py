@@ -15,6 +15,7 @@ from data_loader import *
 from loss_functions import *
 from visualizer import Visualizer
 import torchvision.transforms as transforms
+from inference import Inference
 
 PROJECT_BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA_DIR = os.path.join(PROJECT_BASE_DIR, 'data')
@@ -147,8 +148,6 @@ class Experiment:
 
         model = ClassifierAlexNet64()
         model = torch.load(model_path, map_location=device, weights_only=False)
-        model.to(device)
-        model.eval()
 
         edgebox_params = {
             'max_boxes': 4000,
@@ -158,82 +157,9 @@ class Experiment:
             "edge_min_mag": 0.05
         }
         edgebox_proposer = EdgeBoxesProposer(XIMGPROC_MODEL, edgebox_params)
-        eval = Evaluation(nms_iou_threshold=0.2, map_iou_threshold=0.5, score_threshold=0.6)
-        mAPs = []
-        all_precisions = []
-        all_recalls = []
-        tested_images = []
-        tested_true_boxes = []
-        proposed_boxes = []
-        proposed_scores = []
-        proposed_ious = []
-        for minibatch_no, (data, targets) in tqdm(enumerate(self.testloader), total=len(self.testloader)):
-            for batch_image, true_boxes in zip(data, targets):
-                crops, predicted_boxes = edgebox_proposer.get_n_proposals_test(batch_image.numpy(), n=1000)
-        
-                # Define the resize transform to a uniform size
-                resize_transform = transforms.Compose([
-                    transforms.ToPILImage(),
-                    transforms.Resize((224, 224)),
-                    transforms.ToTensor()
-                ])
-                tensor_crops = torch.stack([resize_transform(crop) for crop in crops])
-                tensor_crops = tensor_crops.to(device)
-
-                with torch.no_grad():
-                    output = model(tensor_crops).view(-1)
-                
-                predicted = (torch.sigmoid(output)).float()
-                # Filter predicted boxes with probability < 0.5 for detecting a pothole
-                boxes, scores = eval.filter_output(predicted_boxes, predicted.cpu().numpy())
-                # Do a non max supression for overlapping boxes that detect the same object
-                boxes, scores = eval.non_max_suppression(boxes, scores)
-                # Get the mAP
-                mAP, precision, recall, ious = eval.mAP(boxes, scores, true_boxes)
-                mAPs.append(mAP)
-                all_precisions.append(precision)
-                all_recalls.append(recall)
-                tested_images.append(batch_image)
-                tested_true_boxes.append(true_boxes)
-                proposed_boxes.append(boxes)
-                proposed_scores.append(scores)
-                proposed_ious.append(ious)
-        
-        mAPs = np.array(mAPs)
-        # This sumarrizes our whole model and we can use it later in plots or whatever so keep it here
-        mean_mAP = np.mean(mAPs)
-        print(f"Mean mAP: {mean_mAP}")
-        print("#############################")
-        # Find images that had the highest mAP
-        N = 20
-        # N_indices = np.argpartition(mAPs, -N)[-N:]
-        N_indices = np.random.choice(len(mAPs), N, replace=False)
-        top_N_mAPs = [mAPs[i] for i in N_indices]
-        # Extract the precision and recall lists for the top 5 mAPs
-        N_precisions = [all_precisions[i] for i in N_indices]
-        N_recalls = [all_recalls[i] for i in N_indices]
-        N_images, N_true_boxes = [tested_images[i] for i in N_indices], [tested_true_boxes[i] for i in N_indices]
-        N_proposed_boxes = [proposed_boxes[i] for i in N_indices]
-        N_proposed_scores = [proposed_scores[i] for i in N_indices]
-        N_proposed_ious = [proposed_ious[i] for i in N_indices]
-        for i in range(N):
-            # Make precision recall curve
-            print(f"precision_recall_curve_{i+1}")
-            print(f"Precision: {N_precisions[i]}")
-            print(f"Recall: {N_recalls[i]}")
-            print(top_N_mAPs[i])
-            print("#############################")
-            eval.plot_precision_recall_curve(precision=N_precisions[i], 
-                                            recall=N_recalls[i], 
-                                            path=os.path.join(figure_path, f"precision_recall_curve_{i+1}.png"), 
-                                            title='Precision-Recall Curve (IoU=0.5)', 
-                                            mAP=top_N_mAPs[i])
-            eval.plot_image_with_boxes(image_tensor=N_images[i],
-                                       true_boxes=N_true_boxes[i],
-                                       proposed_boxes=N_proposed_boxes[i],
-                                       proposed_scores=N_proposed_scores[i],
-                                       proposed_ious=N_proposed_ious[i],
-                                       save_path=os.path.join(figure_path, f"prediction_{i+1}.png"))
+        inf = Inference(model, edgebox_proposer, nms_iou=0.5, map_iou=0.5, score_threshold=0.5, 
+                    figure_path=os.path.join(figure_path))
+        inf.run_inference(self.testloader)
             
 
 
