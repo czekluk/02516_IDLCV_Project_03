@@ -11,7 +11,7 @@ import time
 from data_loader.make_dataset import PotholeDataModule
 
 
-PROJECT_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath('')))
+PROJECT_BASE_DIR = os.path.dirname(os.path.abspath(''))
 RESULTS_DIR = os.path.join(PROJECT_BASE_DIR, 'results')
 XIMGPROC_MODEL = os.path.join(PROJECT_BASE_DIR, 'src', 'region_proposals', 'ximgproc_model.yml.gz')
 RAW_IMG_DIR = os.path.join(PROJECT_BASE_DIR, 'data', 'raw', 'Potholes', 'annotated-images')
