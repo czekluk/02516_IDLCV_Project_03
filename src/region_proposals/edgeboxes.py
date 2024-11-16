@@ -7,10 +7,12 @@ import numpy as np
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
 import random
+import time
 from data_loader.make_dataset import PotholeDataModule
 
 
-PROJECT_BASE_DIR = os.path.dirname(os.path.abspath(''))
+PROJECT_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath('')))
+RESULTS_DIR = os.path.join(PROJECT_BASE_DIR, 'results')
 XIMGPROC_MODEL = os.path.join(PROJECT_BASE_DIR, 'src', 'region_proposals', 'ximgproc_model.yml.gz')
 RAW_IMG_DIR = os.path.join(PROJECT_BASE_DIR, 'data', 'raw', 'Potholes', 'annotated-images')
 
@@ -53,7 +55,8 @@ def load_image_and_bboxes (img_dir, img_names):
         imgfile = os.path.join(img_dir, image) + '.jpg'
         bboxfile = os.path.join(img_dir, image) + '.xml'
         img = cv2.imread(imgfile)
-        images.append(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        images.append(img)
         bboxes.append(load_bbox(bboxfile))
     return images, bboxes
 
@@ -271,7 +274,7 @@ class EdgeBoxesProposer:
         
         return qualified_pct, recall, mabo
     
-    def evaluate_dataset(self, images, bboxes, io_threshold=0.5):
+    def evaluate_dataset(self, images, bboxes, io_threshold=0.5, save=False):
         """Creates and evaluates the object proposals for the dataset. Prints metrics for comparison.
 
         Args:
@@ -287,15 +290,17 @@ class EdgeBoxesProposer:
         qualified_pcts = []
         recalls = []
         mabos = []
+        inf_time = []
         for i, image in tqdm(enumerate(images), total=len(images)):
+            start = time.perf_counter()
             boxes, scores = self.get_proposals(image)
             if len(boxes) == 0:
                 print(f'WARNING: No boxes found for image {i} (likely a bug)')
                 continue
             qualified_boxes, best_boxes, best_ious = self.filter_by_iou_threshold(boxes, bboxes[i], io_threshold)
-            # if len(qualified_boxes) == 0:
-            #     print(f'WARNING: 0 Qualified Boxes found for image {i}')
             qualified_pct, recall, mabo = self.get_metrics(boxes, qualified_boxes, best_boxes, best_ious, bboxes[i])
+            end = time.perf_counter()
+            inf_time.append(end - start)
             qualified_pcts.append(qualified_pct)
             recalls.append(recall)
             mabos.append(mabo)
@@ -303,9 +308,25 @@ class EdgeBoxesProposer:
         total_qualified = np.mean(qualified_pcts)
         total_recall = np.mean(recalls)
         total_mabo = np.mean(mabos)
+        total_inf_time = np.mean(inf_time)
+        
+        plt.figure(figsize=(10, 5))
+        # plt.plot(qualified_pcts, label='Qualified Ratio')
+        plt.plot(recalls, label='Recall')
+        plt.plot(mabos, label='MABO')
+        plt.plot(inf_time, label='Inference Time')
+        plt.legend()
+        plt.xlabel('Image Index')
+        plt.ylabel('Metric Value')
+        plt.title('Metrics for EdgeBoxes')
+        plt.show()
+        if save:
+            plt.savefig('edgeboxes_metrics.png')
+        
         print(f'Qualified Ratio: {total_qualified:.3f}')
         print(f'Recall: {total_recall:.3f}')
         print(f'MABO: {total_mabo:.3f}')
+        print(f'Average Inference Time: {total_inf_time:.3f} seconds')
         return total_qualified, total_recall, total_mabo
 
     def plot_bboxes(self, image, prop_boxes = None, qualified_boxes = None, best_boxes = None, gt_boxes = None):
@@ -482,22 +503,27 @@ def grid_search():
         print("--------------------")
 
 if __name__ == '__main__':
-    # grid_search()
+    grid_search()
+    
+    # datamodule = PotholeDataModule()
+    # train_dataset = datamodule.train_dataset
+    # _, images_to_load = train_dataset.get_image_paths()
+    # images_to_load = [img[:-4] for img in images_to_load]
+    
     # Load entire dataset
     # images_to_load = ['img-' + str(i) for i in range(1, 666)]
-    datamodule = PotholeDataModule()
-    train_dataset = datamodule.train_dataset
-    _, images_to_load = train_dataset.get_image_paths()
-    images_to_load = [img[:-4] for img in images_to_load]
+    images_to_load = ['img-1', 'img-2', 'img-3', 'img-4', 'img-5']
     images, gt_bboxes = load_image_and_bboxes(RAW_IMG_DIR, images_to_load)
-    
     # Evaluate dataset using params
     # The more boxes, the more likely to have high MABO and recall
     # TODO: Tune the parameters for better results
     # https://docs.opencv.org/3.4/d4/d0d/group__ximgproc__edgeboxes.html
     edgebox_params = {
-        'max_boxes': 5000,
+        'max_boxes': 4000,
         'min_score': 0.0001,
+        "alpha": 0.8,
+        "beta": 0.75,
+        "edge_min_mag": 0.05
     }
     eb = EdgeBoxesProposer(XIMGPROC_MODEL, edgebox_params)
     eb.evaluate_dataset(images, gt_bboxes, 0.7)
