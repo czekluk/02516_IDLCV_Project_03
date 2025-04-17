@@ -39,6 +39,4 @@ bkill <job-id>
 
 Submission on Tuesday 19.11.2024 at 22:00.
 
-## Poster 
-
 
